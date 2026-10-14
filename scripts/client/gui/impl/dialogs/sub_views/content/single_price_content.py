@@ -1,0 +1,9 @@
+# Python bytecode 2.7 (decompiled from Python 2.7)
+# Embedded file name: scripts/client/gui/impl/dialogs/sub_views/content/single_price_content.py
+from __future__ import absolute_import
+from gui.impl.dialogs.sub_views.common.single_price import SinglePrice
+from gui.impl.gen import R
+
+class SinglePriceContent(SinglePrice):
+    __slots__ = ()
+    LAYOUT_DYN_ACCESSOR = R.views.dialogs.sub_views.content.SinglePriceContent

@@ -1,0 +1,16 @@
+# Python bytecode 2.7 (decompiled from Python 2.7)
+# Embedded file name: scripts/client/GeneralSpaceData.py
+from __future__ import absolute_import
+import BigWorld
+
+class GeneralSpaceData(BigWorld.Space):
+
+    def set_environment(self, prev):
+        name = self.environment
+        if name:
+            self.setEnvironment(name)
+        else:
+            self.resetEnvironment()
+
+    def set_replicableHash(self, _):
+        self.setReplicableHash(self.replicableHash)

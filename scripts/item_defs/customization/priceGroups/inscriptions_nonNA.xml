@@ -1,0 +1,11 @@
+<inscriptions_nonNA.xml>
+  <priceGroup>
+    <id>39</id>
+    <name>inscriptions 50g NA</name>
+    <tags>inscriptions NA</tags>
+    <price>
+      <gold></gold>
+    </price>
+    <notInShop>True</notInShop>
+  </priceGroup>
+</inscriptions_nonNA.xml>

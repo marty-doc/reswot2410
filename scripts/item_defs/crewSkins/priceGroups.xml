@@ -1,0 +1,29 @@
+<priceGroups.xml>
+  <priceGroup>
+    <id>1</id>
+    <name>commonSkin</name>
+    <tags>commonSkin</tags>
+    <price>
+      <credits></credits>
+    </price>
+    <notInShop>False</notInShop>
+  </priceGroup>
+  <priceGroup>
+    <id>2</id>
+    <name>rareSkin</name>
+    <tags>rareSkin</tags>
+    <price>
+      <credits></credits>
+    </price>
+    <notInShop>False</notInShop>
+  </priceGroup>
+  <priceGroup>
+    <id>3</id>
+    <name>epicSkin</name>
+    <tags>epicSkin</tags>
+    <price>
+      <credits></credits>
+    </price>
+    <notInShop>False</notInShop>
+  </priceGroup>
+</priceGroups.xml>

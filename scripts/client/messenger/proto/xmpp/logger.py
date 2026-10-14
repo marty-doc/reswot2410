@@ -1,0 +1,101 @@
+# Python bytecode 2.7 (decompiled from Python 2.7)
+# Embedded file name: scripts/client/messenger/proto/xmpp/logger.py
+from __future__ import absolute_import
+import time
+from future.utils import viewvalues
+import BigWorld
+from debug_utils import LOG_CURRENT_EXCEPTION
+from messenger.proto.xmpp.gloox_constants import LOG_LEVEL, LOG_SOURCE, GLOOX_EVENT
+from messenger.proto.xmpp.gloox_wrapper import ClientEventsHandler
+from messenger.proto.xmpp.log_output import CLIENT_LOG_AREA, g_logOutput
+
+class _IEventLogger(object):
+
+    def log(self, level, source, message):
+        pass
+
+    def clear(self):
+        pass
+
+
+def _getLogFunction(output, level):
+    if level == LOG_LEVEL.ERROR:
+        logger = output.error
+    elif level == LOG_LEVEL.WARNING:
+        logger = output.warning
+    else:
+        logger = output.debug
+    return logger
+
+
+class _GlooxLogger(_IEventLogger):
+
+    def log(self, level, source, message):
+        if source in LOG_SOURCE.XML_STREAM:
+            area = CLIENT_LOG_AREA.GLOOX_XML
+        else:
+            area = CLIENT_LOG_AREA.GLOOX_SOURCE
+        logger = _getLogFunction(g_logOutput, level)
+        logger(area, source, message)
+
+
+class LogHandler(ClientEventsHandler):
+    __slots__ = ('__loggers',)
+
+    def __init__(self):
+        super(LogHandler, self).__init__()
+        self.__loggers = {'out': _GlooxLogger()}
+
+    def logger(self, key):
+        if key in self.__loggers:
+            return self.__loggers[key]
+        else:
+            g_logOutput.error(CLIENT_LOG_AREA.GENERIC, 'Events logger is not found. Available loggers are', list(self.__loggers))
+            return None
+
+    def getNames(self):
+        return list(self.__loggers)
+
+    def clear(self):
+        for logger in viewvalues(self.__loggers):
+            logger.clear()
+
+    def registerHandlers(self):
+        self.client().registerHandler(GLOOX_EVENT.LOG, self.__handleLog)
+
+    def unregisterHandlers(self):
+        self.client().unregisterHandler(GLOOX_EVENT.LOG, self.__handleLog)
+
+    def __handleLog(self, level, source, message):
+        for logger in viewvalues(self.__loggers):
+            logger.log(level, source, message)
+
+    def __repr__(self):
+        return 'LogHandler(id=0x{0:08X}, loggers({1!r:s}))'.format(id(self), list(self.__loggers))
+
+
+class XMPP_EVENT_LOG(object):
+    DISCONNECT = 1
+
+
+def sendEventToServer(eventType, host, port, errorCode=0, errorDescr='', tries=1):
+    player = BigWorld.player()
+    sender = getattr(player, 'logXMPPEvents', None)
+    if sender is None or not callable(sender) or not player.isPlayer or player.isDestroyed:
+        return
+    else:
+        address = '{0}:{1}'.format(host, port)
+        currentTime = time.time()
+        g_logOutput.debug(CLIENT_LOG_AREA.GENERIC, 'Sends log to server', [eventType,
+         currentTime,
+         errorCode,
+         tries], [address, errorDescr])
+        try:
+            sender([eventType,
+             currentTime,
+             errorCode,
+             tries], [address, errorDescr])
+        except Exception:
+            LOG_CURRENT_EXCEPTION()
+
+        return

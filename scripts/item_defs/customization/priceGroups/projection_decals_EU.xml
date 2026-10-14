@@ -1,0 +1,11 @@
+<projection_decals_EU.xml>
+  <priceGroup>
+    <id>57</id>
+    <name>projection_decals 110g EU</name>
+    <tags>projection_decals EU</tags>
+    <price>
+      <gold></gold>
+    </price>
+    <notInShop>True</notInShop>
+  </priceGroup>
+</projection_decals_EU.xml>

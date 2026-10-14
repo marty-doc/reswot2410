@@ -1,0 +1,15 @@
+# Python bytecode 2.7 (decompiled from Python 2.7)
+# Embedded file name: scripts/client/gui/shared/utils/requesters/gift_system_requester.py
+from __future__ import absolute_import
+import BigWorld
+from gui.shared.utils.requesters.abstract import AbstractSyncDataRequester
+from skeletons.gui.shared.utils.requesters import IGiftSystemRequester
+
+class GiftSystemRequester(AbstractSyncDataRequester, IGiftSystemRequester):
+
+    @property
+    def isHistoryReady(self):
+        return bool(self.getCacheValue('isReady', False))
+
+    def _requestCache(self, callback=None):
+        BigWorld.player().giftSystem.getCache(lambda resID, value: self._response(resID, value, callback))

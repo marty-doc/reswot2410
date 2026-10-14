@@ -1,0 +1,85 @@
+# Python bytecode 2.7 (decompiled from Python 2.7)
+# Embedded file name: scripts/client/messenger/proto/xmpp/log_output.py
+from __future__ import absolute_import
+from future.utils import viewitems, viewvalues
+from debug_utils import LOG_DEBUG, LOG_WARNING, LOG_ERROR
+
+class CLIENT_LOG_AREA(object):
+    GLOOX_SOURCE, GLOOX_XML, PY_WRAPPER, CONNECTION, LOGIN, TOKEN, ROSTER, GROUP, SETTINGS, GENERIC, SYNC, BLOCK_LIST, RESOURCE, SUBSCRIPTION, MESSAGE, OBSOLETE = range(16)
+
+
+CLIENT_LOG_AREA_NAMES = {v:k for k, v in viewitems(CLIENT_LOG_AREA.__dict__) if not k.startswith('_')}
+
+class ILogOutput(object):
+
+    def debug(self, area, message, *args, **kwargs):
+        pass
+
+    def warning(self, area, message, *args, **kwargs):
+        pass
+
+    def error(self, area, message, *args, **kwargs):
+        pass
+
+    def clear(self):
+        pass
+
+
+class ConsoleLogOutput(ILogOutput):
+
+    def debug(self, area, message, *args):
+        if area != CLIENT_LOG_AREA.GLOOX_XML:
+            LOG_DEBUG(self.__makeHeader(area, message), *args)
+
+    def warning(self, area, message, *args):
+        if area != CLIENT_LOG_AREA.GLOOX_XML:
+            LOG_WARNING(self.__makeHeader(area, message), *args)
+
+    def error(self, area, message, *args):
+        if area != CLIENT_LOG_AREA.GLOOX_XML:
+            LOG_ERROR(self.__makeHeader(area, message), *args)
+
+    def __makeHeader(self, area, message):
+        name = CLIENT_LOG_AREA_NAMES.get(area, 'N/A')
+        return 'XMPP_PY::{0}. {1}'.format(name, message)
+
+
+class _LogOutputDecorator(ILogOutput):
+    __slots__ = ('__outputs',)
+
+    def __init__(self):
+        super(_LogOutputDecorator, self).__init__()
+        self.__outputs = {'console': ConsoleLogOutput()}
+
+    def addOutput(self, name, output):
+        if name not in self.__outputs:
+            self.__outputs[name] = output
+
+    def removeOutput(self, name):
+        if name in self.__outputs:
+            self.__outputs.pop(name)
+
+    def getOutput(self, name):
+        output = None
+        if name in self.__outputs:
+            output = self.__outputs[name]
+        return output
+
+    def debug(self, area, message, *args):
+        for output in viewvalues(self.__outputs):
+            output.debug(area, message, *args)
+
+    def warning(self, area, message, *args):
+        for output in viewvalues(self.__outputs):
+            output.warning(area, message, *args)
+
+    def error(self, area, message, *args):
+        for output in viewvalues(self.__outputs):
+            output.error(area, message, *args)
+
+    def clear(self):
+        for output in viewvalues(self.__outputs):
+            output.clear()
+
+
+g_logOutput = _LogOutputDecorator()
