@@ -4,11 +4,11 @@ File: `scripts/client/gui/mods/mod_gun_direction_beams.py`
 
 ## Scope
 
-Test-only prototype for training rooms/private test servers. It polls loaded vehicle entities, reads `appearance.gunMatrix`, casts a collision segment up to 564 m, and drives a `LaserSightMatrixProvider` attached through `BigWorld.Servo`.
+Test-only prototype for training rooms/private test servers. It polls loaded vehicle entities, reads `appearance.gunMatrix`, casts a collision segment up to 600 m, and drives a `LaserSightMatrixProvider` attached through `BigWorld.Servo`.
 
 ## Lifecycle copied from the supplied terrain-circle mod
 
-- `start()` is idempotent and begins with a short check delay; actual processing waits until the player is on an arena.
+- `start()` is idempotent. Outside an arena, while the local player is dead, or outside an explicitly recognized test session, it removes visuals and checks again at the slower `CHECK_INTERVAL`; while alive in a recognized test battle it updates at `UPDATE_INTERVAL`.
 - `PlayerAvatar.onEnterWorld` starts polling after calling the original method.
 - `PlayerAvatar.onLeaveWorld` removes active beams before calling the original method.
 - `stop()` cancels the scheduled callback and removes models/animators; `reset()` only clears current visuals, allowing polling to continue.
