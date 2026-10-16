@@ -22,7 +22,7 @@ _TAG = '[gun_direction_beams]'
 # REQUIRED: set this to a real AnimationSequence beam resource from the client.
 # The script-only repository did not contain a verified beam resource path.
 BEAM_SEQUENCE = ''
-MAX_DISTANCE = 564.0
+MAX_DISTANCE = 600.0
 CHECK_INTERVAL = 0.1
 UPDATE_INTERVAL = 0.05
 ALLOW_ONLY_EXPLICIT_TEST_MODE = True
@@ -98,6 +98,30 @@ class GunDirectionBeams(object):
         except Exception:
             return False
 
+    def _is_player_alive(self, player):
+        """Return False when the local player is dead; unknown state is conservative."""
+        alive = self._read_flag(player, 'isVehicleAlive')
+        if alive is not None:
+            return alive
+        try:
+            vehicle = getattr(player, 'vehicle', None)
+            if vehicle is not None:
+                health = getattr(vehicle, 'health', None)
+                if health is not None:
+                    return health > 0
+        except Exception:
+            pass
+        try:
+            vehicle_id = getattr(player, 'playerVehicleID', 0)
+            vehicle = BigWorld.entity(vehicle_id) if vehicle_id else None
+            if vehicle is not None:
+                health = getattr(vehicle, 'health', None)
+                if health is not None:
+                    return health > 0
+        except Exception:
+            pass
+        return False
+
     def _is_test_session(self, player):
         """Conservative gate; target-client arena metadata must be verified."""
         try:
@@ -114,21 +138,25 @@ class GunDirectionBeams(object):
         self._callback_id = None
         if not self._running:
             return
+        next_delay = CHECK_INTERVAL
         try:
             player = BigWorld.player()
-            if player is None or not self._is_on_arena(player):
+            # Sleep between checks while outside battle, dead, or outside an
+            # explicitly recognized training/test session. No active visuals remain.
+            if (player is None or not self._is_on_arena(player)
+                    or not self._is_player_alive(player)):
                 self._deactivate()
             elif ALLOW_ONLY_EXPLICIT_TEST_MODE and not self._is_test_session(player):
-                # Fail closed if the session cannot be identified as test-only.
                 self._deactivate()
             else:
                 self._ensure_sequence(player)
                 self._update_vehicles(player)
+                next_delay = UPDATE_INTERVAL
         except Exception:
             _LOG.exception('%s update loop failed', _TAG)
             self._deactivate()
         if self._running:
-            self._schedule(UPDATE_INTERVAL)
+            self._schedule(next_delay)
 
     def _ensure_sequence(self, player):
         if self._sequence_attempted:
@@ -185,9 +213,11 @@ class GunDirectionBeams(object):
                 gun_provider = getattr(appearance, 'gunMatrix', None) if appearance is not None else None
                 if gun_provider is None:
                     continue
-                live_ids.add(vehicle_id)
-                self._update_one(player, vehicle_id, vehicle, gun_provider)
+                if self._update_one(player, vehicle_id, vehicle, gun_provider):
+                    live_ids.add(vehicle_id)
             except Exception:
+                # Avoid leaving a stale beam at its previous coordinates.
+                self._remove_beam(vehicle_id)
                 _LOG.debug('%s skipped vehicle %s', _TAG, vehicle_id, exc_info=True)
 
         for vehicle_id in list(self._beams.keys()):
@@ -197,10 +227,17 @@ class GunDirectionBeams(object):
     def _update_one(self, player, vehicle_id, vehicle, gun_provider):
         # Vehicle.py decodes packed gun angles; appearance.gunMatrix is expected
         # to expose the resulting world-space gun transform.
-        gun_matrix = Math.Matrix(gun_provider)
-        start = gun_matrix.applyToOrigin()
-        direction = gun_matrix.applyToAxis(2)
-        end = start + direction * MAX_DISTANCE
+        try:
+            gun_matrix = Math.Matrix(gun_provider)
+            start = gun_matrix.applyToOrigin()
+            direction = gun_matrix.applyToAxis(2)
+            if start is None or direction is None:
+                self._remove_beam(vehicle_id)
+                return False
+            end = start + direction * MAX_DISTANCE
+        except Exception:
+            self._remove_beam(vehicle_id)
+            return False
 
         # Collision call/signature is copied from vehicle_extras.BlinkingLaserSight.
         collision = BigWorld.wg_collideDynamicStatic(
@@ -212,11 +249,16 @@ class GunDirectionBeams(object):
         if beam is None:
             beam = self._create_beam(player, vehicle_id, gun_provider)
             if beam is None:
-                return
+                return False
             self._beams[vehicle_id] = beam
-        beam['matrix_provider'].beamMatrix = gun_provider
-        beam['matrix_provider'].beamLength = distance
-        beam['last_hit'] = hit_point
+        try:
+            beam['matrix_provider'].beamMatrix = gun_provider
+            beam['matrix_provider'].beamLength = distance
+            beam['last_hit'] = hit_point
+            return True
+        except Exception:
+            self._remove_beam(vehicle_id)
+            return False
 
     def _create_beam(self, player, vehicle_id, gun_provider):
         try:
