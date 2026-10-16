@@ -235,6 +235,8 @@ class GunDirectionBeams(object):
             if beam is None:
                 return False
             self._beams[vehicle_id] = beam
+        # If this beam was created before the .seq finished loading, attach it now.
+        self._ensure_beam_animator(player, vehicle_id, beam)
         try:
             beam['matrix_provider'].beamMatrix = gun_provider
             # The stock training laser sequence is configured for a 10 m base length.
@@ -245,6 +247,31 @@ class GunDirectionBeams(object):
             self._remove_beam(vehicle_id)
             return False
 
+    def _ensure_beam_animator(self, player, vehicle_id, beam):
+        """Attach the sequence when it becomes ready, including for existing beams."""
+        if beam.get('animator') is not None:
+            return True
+        if not self._sequence_ready or self._sequence_loader is None:
+            return False
+        try:
+            animator = self._sequence_loader.loadSync()
+            animator.bindTo(AnimationSequence.ModelWrapperContainer(
+                beam['model'], player.spaceID))
+            animator.setEnabled(True)
+            animator.start()
+            beam['animator'] = animator
+            _LOG.info('%s animator started for vehicle %s (bound=%s, playing=%s)',
+                      _TAG, vehicle_id, animator.isBound(), animator.isPlaying())
+            return True
+        except Exception:
+            # Avoid flooding the log on every 50 ms update if the resource/client
+            # build does not support this binding pattern.
+            if not beam.get('animator_error_logged'):
+                _LOG.exception('%s could not bind sequence for vehicle %s; '
+                               'the beam model may remain invisible', _TAG, vehicle_id)
+                beam['animator_error_logged'] = True
+            return False
+
     def _create_beam(self, player, vehicle_id, gun_provider):
         try:
             matrix_provider = LaserSightMatrixProvider()
@@ -253,14 +280,11 @@ class GunDirectionBeams(object):
             model.addMotor(BigWorld.Servo(matrix_provider.beamMatrix))
             player.addModel(model)
             beam = {'model': model, 'matrix_provider': matrix_provider,
-                    'animator': None, 'last_hit': None}
-            # A valid sequence resource is required: Model('') alone is invisible.
-            if self._sequence_ready and self._sequence is not None:
-                animator = self._sequence_loader.loadSync()
-                animator.bindTo(AnimationSequence.ModelWrapperContainer(model, player.spaceID))
-                animator.setEnabled(True)
-                animator.start()
-                beam['animator'] = animator
+                    'animator': None, 'last_hit': None,
+                    'animator_error_logged': False}
+            # Sequence loading is asynchronous. _update_one will retry attachment
+            # after _sequence_ready becomes True, rather than leaving animator=None.
+            self._ensure_beam_animator(player, vehicle_id, beam)
             return beam
         except Exception:
             _LOG.exception('%s could not create beam for vehicle %s', _TAG, vehicle_id)
