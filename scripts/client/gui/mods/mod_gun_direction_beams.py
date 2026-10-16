@@ -21,7 +21,7 @@ _TAG = '[gun_direction_beams]'
 
 # REQUIRED: set this to a real AnimationSequence beam resource from the client.
 # The script-only repository did not contain a verified beam resource path.
-BEAM_SEQUENCE = ''
+BEAM_SEQUENCE = 'particles/eff_sequence/maps_training_laser_e_staticBright_1.seq'
 MAX_DISTANCE = 600.0
 CHECK_INTERVAL = 0.1
 UPDATE_INTERVAL = 0.05
@@ -237,7 +237,8 @@ class GunDirectionBeams(object):
             self._beams[vehicle_id] = beam
         try:
             beam['matrix_provider'].beamMatrix = gun_provider
-            beam['matrix_provider'].beamLength = distance
+            # The stock training laser sequence is configured for a 10 m base length.
+            beam['matrix_provider'].beamLength = distance / 10.0
             beam['last_hit'] = hit_point
             return True
         except Exception:
