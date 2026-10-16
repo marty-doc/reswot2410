@@ -25,7 +25,6 @@ BEAM_SEQUENCE = ''
 MAX_DISTANCE = 600.0
 CHECK_INTERVAL = 0.1
 UPDATE_INTERVAL = 0.05
-ALLOW_ONLY_EXPLICIT_TEST_MODE = True
 
 
 class GunDirectionBeams(object):
@@ -122,18 +121,6 @@ class GunDirectionBeams(object):
             pass
         return False
 
-    def _is_test_session(self, player):
-        """Conservative gate; target-client arena metadata must be verified."""
-        try:
-            arena = player.arena
-            arena_type = getattr(arena, 'arenaType', None)
-            name = str(getattr(arena_type, 'name', '') or '').lower()
-            description = str(getattr(arena_type, 'description', '') or '').lower()
-            tokens = ('training', 'bootcamp', 'sandbox', 'test')
-            return any(token in name or token in description for token in tokens)
-        except Exception:
-            return False
-
     def _tick(self):
         self._callback_id = None
         if not self._running:
@@ -141,12 +128,9 @@ class GunDirectionBeams(object):
         next_delay = CHECK_INTERVAL
         try:
             player = BigWorld.player()
-            # Sleep between checks while outside battle, dead, or outside an
-            # explicitly recognized training/test session. No active visuals remain.
+            # Sleep between checks while outside battle or dead. No active visuals remain.
             if (player is None or not self._is_on_arena(player)
                     or not self._is_player_alive(player)):
-                self._deactivate()
-            elif ALLOW_ONLY_EXPLICIT_TEST_MODE and not self._is_test_session(player):
                 self._deactivate()
             else:
                 self._ensure_sequence(player)
