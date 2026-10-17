@@ -13,6 +13,7 @@ import AnimationSequence
 import BigWorld
 import Math
 from Avatar import PlayerAvatar
+from DebugDrawer import DebugDrawer
 
 from helpers.laser_sight_matrix_provider import LaserSightMatrixProvider
 
@@ -133,8 +134,8 @@ class GunDirectionBeams(object):
                     or not self._is_player_alive(player)):
                 self._deactivate()
             else:
-                self._ensure_sequence(player)
                 self._update_vehicles(player)
+                self._render_beams()
                 next_delay = UPDATE_INTERVAL
         except Exception:
             _LOG.exception('%s update loop failed', _TAG)
@@ -169,145 +170,84 @@ class GunDirectionBeams(object):
             _LOG.exception('%s sequence callback failed', _TAG)
 
     def _update_vehicles(self, player):
-        arena_vehicles = getattr(player.arena, 'vehicles', {})
-        try:
-            vehicle_ids = list(arena_vehicles.keys())
-        except Exception:
-            _LOG.debug('%s arena.vehicles is not a mapping in this client build')
+        # Draw only the local player's gun direction. This is a world-space
+        # training/debug visualization, not an enemy gun-direction indicator.
+        vehicle_id = getattr(player, 'playerVehicleID', 0)
+        if not vehicle_id:
+            self._deactivate()
             return
 
-        live_ids = set()
-        # BigWorld.entities is used as a mapping in some client builds; if this
-        # build exposes only BigWorld.entity(id), the fallback below is tried.
-        entities = getattr(BigWorld, 'entities', None)
-        for vehicle_id in vehicle_ids:
-            try:
-                vehicle = None
-                if entities is not None:
-                    getter = getattr(entities, 'get', None)
-                    if callable(getter):
-                        vehicle = getter(vehicle_id)
-                if vehicle is None:
-                    vehicle = BigWorld.entity(vehicle_id)
-                if vehicle is None or getattr(vehicle, 'model', None) is None:
-                    continue
-                if getattr(vehicle, 'health', 1) <= 0:
-                    continue
-                appearance = getattr(vehicle, 'appearance', None)
-                gun_provider = getattr(appearance, 'gunMatrix', None) if appearance is not None else None
-                if gun_provider is None:
-                    continue
-                if self._update_one(player, vehicle_id, vehicle, gun_provider):
-                    live_ids.add(vehicle_id)
-            except Exception:
-                # Avoid leaving a stale beam at its previous coordinates.
+        try:
+            vehicle = BigWorld.entity(vehicle_id)
+            if vehicle is None or getattr(vehicle, 'model', None) is None:
                 self._remove_beam(vehicle_id)
-                _LOG.debug('%s skipped vehicle %s', _TAG, vehicle_id, exc_info=True)
-
-        for vehicle_id in list(self._beams.keys()):
-            if vehicle_id not in live_ids:
+                return
+            if getattr(vehicle, 'health', 1) <= 0:
                 self._remove_beam(vehicle_id)
+                return
+            appearance = getattr(vehicle, 'appearance', None)
+            gun_provider = getattr(appearance, 'gunMatrix', None) if appearance is not None else None
+            if gun_provider is None:
+                self._remove_beam(vehicle_id)
+                return
+            if not self._update_one(vehicle_id, vehicle, gun_provider):
+                self._remove_beam(vehicle_id)
+        except Exception:
+            self._remove_beam(vehicle_id)
+            _LOG.debug('%s skipped local vehicle %s', _TAG, vehicle_id, exc_info=True)
 
-    def _update_one(self, player, vehicle_id, vehicle, gun_provider):
-        # Vehicle.py decodes packed gun angles; appearance.gunMatrix is expected
-        # to expose the resulting world-space gun transform.
+        for stale_id in list(self._beams.keys()):
+            if stale_id != vehicle_id:
+                self._remove_beam(stale_id)
+
+    def _update_one(self, vehicle_id, vehicle, gun_provider):
         try:
             gun_matrix = Math.Matrix(gun_provider)
             start = gun_matrix.applyToOrigin()
             direction = gun_matrix.applyToAxis(2)
             if start is None or direction is None:
-                self._remove_beam(vehicle_id)
                 return False
             end = start + direction * MAX_DISTANCE
         except Exception:
-            self._remove_beam(vehicle_id)
             return False
 
-        # Collision call/signature is copied from vehicle_extras.BlinkingLaserSight.
-        collision = BigWorld.wg_collideDynamicStatic(
-            vehicle.spaceID, start, end, 128, vehicle.id, -1, 0)
-        hit_point = collision[0] if collision is not None else end
-        distance = max(0.0, min(MAX_DISTANCE, start.distTo(hit_point)))
+        # Match the stock laser's collision query so the line stops at the
+        # first world collision instead of extending through terrain/vehicles.
+        try:
+            collision = BigWorld.wg_collideDynamicStatic(
+                vehicle.spaceID, start, end, 128, vehicle.id, -1, 0)
+            hit_point = collision[0] if collision is not None else end
+        except Exception:
+            hit_point = end
 
         beam = self._beams.get(vehicle_id)
         if beam is None:
-            beam = self._create_beam(player, vehicle_id, gun_provider)
-            if beam is None:
-                return False
+            # Keep one logical line record per vehicle; only its endpoints move.
+            beam = {'start': start, 'end': hit_point}
             self._beams[vehicle_id] = beam
-        # If this beam was created before the .seq finished loading, attach it now.
-        self._ensure_beam_animator(player, vehicle_id, beam)
-        try:
-            beam['matrix_provider'].beamMatrix = gun_provider
-            # The stock training laser sequence is configured for a 10 m base length.
-            beam['matrix_provider'].beamLength = distance / 10.0
-            beam['last_hit'] = hit_point
-            return True
-        except Exception:
-            self._remove_beam(vehicle_id)
-            return False
+        else:
+            beam['start'] = start
+            beam['end'] = hit_point
+        return True
 
-    def _ensure_beam_animator(self, player, vehicle_id, beam):
-        """Attach the sequence when it becomes ready, including for existing beams."""
-        if beam.get('animator') is not None:
-            return True
-        if not self._sequence_ready or self._sequence_loader is None:
-            return False
-        try:
-            animator = self._sequence_loader.loadSync()
-            animator.bindTo(AnimationSequence.ModelWrapperContainer(
-                beam['model'], player.spaceID))
-            animator.setEnabled(True)
-            animator.start()
-            beam['animator'] = animator
-            _LOG.info('%s animator started for vehicle %s (bound=%s, playing=%s)',
-                      _TAG, vehicle_id, animator.isBound(), animator.isPlaying())
-            return True
-        except Exception:
-            # Avoid flooding the log on every 50 ms update if the resource/client
-            # build does not support this binding pattern.
-            if not beam.get('animator_error_logged'):
-                _LOG.exception('%s could not bind sequence for vehicle %s; '
-                               'the beam model may remain invisible', _TAG, vehicle_id)
-                beam['animator_error_logged'] = True
-            return False
-
-    def _create_beam(self, player, vehicle_id, gun_provider):
-        try:
-            matrix_provider = LaserSightMatrixProvider()
-            matrix_provider.beamMatrix = gun_provider
-            model = BigWorld.Model('')
-            model.addMotor(BigWorld.Servo(matrix_provider.beamMatrix))
-            player.addModel(model)
-            beam = {'model': model, 'matrix_provider': matrix_provider,
-                    'animator': None, 'last_hit': None,
-                    'animator_error_logged': False}
-            # Sequence loading is asynchronous. _update_one will retry attachment
-            # after _sequence_ready becomes True, rather than leaving animator=None.
-            self._ensure_beam_animator(player, vehicle_id, beam)
-            return beam
-        except Exception:
-            _LOG.exception('%s could not create beam for vehicle %s', _TAG, vehicle_id)
-            return None
-
-    def _remove_beam(self, vehicle_id):
-        beam = self._beams.pop(vehicle_id, None)
-        if beam is None:
+    def _render_beams(self):
+        if not self._beams:
             return
         try:
-            animator = beam.get('animator')
-            if animator is not None:
-                animator.stop()
-                animator.setEnabled(False)
-                animator.unbind()
+            drawer = DebugDrawer()
+            color = Math.Vector4(1.0, 0.15, 0.05, 1.0)
+            for beam in self._beams.values():
+                line = drawer.line()
+                line.points([beam['start'], beam['end']])
+                line.width(2.0)
+                line.colour(color)
+                line.zTest(False)
+                line.zWrite(False)
         except Exception:
-            _LOG.debug('%s animator cleanup failed for %s', _TAG, vehicle_id, exc_info=True)
-        try:
-            player = BigWorld.player()
-            if player is not None and beam.get('model') is not None:
-                player.delModel(beam['model'])
-        except Exception:
-            _LOG.debug('%s model cleanup failed for %s', _TAG, vehicle_id, exc_info=True)
+            _LOG.debug('%s DebugDrawer render failed', _TAG, exc_info=True)
+
+    def _remove_beam(self, vehicle_id):
+        self._beams.pop(vehicle_id, None)
 
     def _deactivate(self):
         for vehicle_id in list(self._beams.keys()):
