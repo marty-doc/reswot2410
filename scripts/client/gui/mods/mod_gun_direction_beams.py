@@ -9,20 +9,15 @@ from __future__ import absolute_import
 
 import logging
 
-import AnimationSequence
 import BigWorld
 import Math
 from Avatar import PlayerAvatar
 from DebugDrawer import DebugDrawer
 
-from helpers.laser_sight_matrix_provider import LaserSightMatrixProvider
 
 _LOG = logging.getLogger('gun_direction_beams')
 _TAG = '[gun_direction_beams]'
 
-# REQUIRED: set this to a real AnimationSequence beam resource from the client.
-# The script-only repository did not contain a verified beam resource path.
-BEAM_SEQUENCE = 'particles/eff_sequence/maps_training_laser_e_staticBright_1.seq'
 MAX_DISTANCE = 600.0
 CHECK_INTERVAL = 0.1
 UPDATE_INTERVAL = 0.05
@@ -33,11 +28,6 @@ class GunDirectionBeams(object):
         self._running = False
         self._callback_id = None
         self._beams = {}
-        self._sequence_loader = None
-        self._sequence = None
-        self._sequence_ready = False
-        self._sequence_attempted = False
-        self._player_space_id = None
 
     def start(self):
         """Start polling; drawing waits until the client is actually in battle."""
@@ -61,11 +51,6 @@ class GunDirectionBeams(object):
                 _LOG.debug('%s callback cancellation failed', _TAG, exc_info=True)
             self._callback_id = None
         self._deactivate()
-        self._sequence_loader = None
-        self._sequence = None
-        self._sequence_ready = False
-        self._sequence_attempted = False
-        self._player_space_id = None
         _LOG.info('%s stopped', _TAG)
 
     def _schedule(self, delay):
@@ -142,32 +127,6 @@ class GunDirectionBeams(object):
             self._deactivate()
         if self._running:
             self._schedule(next_delay)
-
-    def _ensure_sequence(self, player):
-        if self._sequence_attempted:
-            return
-        self._sequence_attempted = True
-        self._player_space_id = player.spaceID
-        if not BEAM_SEQUENCE:
-            _LOG.warning('%s BEAM_SEQUENCE is empty: polling works, but no visible beam resource is configured.', _TAG)
-            return
-        try:
-            self._sequence_loader = AnimationSequence.Loader(BEAM_SEQUENCE, player.spaceID)
-            self._sequence = self._sequence_loader.loadSync()
-            BigWorld.loadResourceListBG((self._sequence_loader,), self._on_sequence_loaded)
-        except Exception:
-            _LOG.exception('%s failed to initialize beam sequence', _TAG)
-
-    def _on_sequence_loaded(self, resource_refs):
-        try:
-            failed_ids = getattr(resource_refs, 'failedIDs', ())
-            if BEAM_SEQUENCE in failed_ids or self._sequence is None:
-                _LOG.error('%s sequence failed to load: %s', _TAG, BEAM_SEQUENCE)
-                return
-            self._sequence_ready = True
-            _LOG.info('%s sequence loaded: %s', _TAG, BEAM_SEQUENCE)
-        except Exception:
-            _LOG.exception('%s sequence callback failed', _TAG)
 
     def _update_vehicles(self, player):
         # Draw only the local player's gun direction. This is a world-space
